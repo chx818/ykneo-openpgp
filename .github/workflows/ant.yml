@@ -150,6 +150,18 @@ jobs:
           curl -fsSL -o ant-javacard.jar "$ANT_JAVACARD_JAR"
           git clone --depth 1 "$SDK_REPO" sdks
 
+      # 源码是在 Windows 上生成的，可能带 UTF-8 BOM，javac 会报
+      # "illegal character: '\ufeff'"，所以构建前先统一去掉
+      - name: Strip UTF-8 BOM from probe sources
+        run: |
+          python3 - <<'PY'
+          import pathlib
+          for p in pathlib.Path('probe/src').rglob('*.java'):
+              b = p.read_bytes()
+              if b.startswith(b'\xef\xbb\xbf'):
+                  p.write_bytes(b[3:])
+                  print('stripped BOM:', p)
+          PY
       - name: Build probes
         run: ant -f build-probe.xml all
 
