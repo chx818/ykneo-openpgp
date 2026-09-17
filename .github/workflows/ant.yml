@@ -8,6 +8,7 @@
 #    cap-jc222-upstream : 上游原生 Ant 构建，Java Card 2.2.2 目标（最稳）
 #    cap-antjavacard    : ant-javacard，同一个源出 2.2.2 / 3.0.5 两个 CAP
 #    probe-caps         : 11 个极小探针 applet，用来问清楚这张卡支持哪些算法（源码内联在本文件里）
+#    probe2-caps        : 第二轮 7 个探针，专查 RSA 缺哪一层 + ECC 有没有
 #                         卡不支持 -> INSTALL 时抛 CryptoException -> 返回 6F00
 #                         卡支持   -> 安装成功
 # =============================================================================
@@ -721,4 +722,357 @@ jobs:
         with:
           name: probe-caps
           path: "probe-*.cap"
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------------------
+  # 方案四：第二轮探针（RSA 到底缺哪一层 + ECC 有没有）
+  #         Artifacts -> probe2-caps -> 7 个 probe2-*.cap
+  # ---------------------------------------------------------------------------
+  probe2-caps:
+    name: Crypto probe CAPs round 2
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 8
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "8"
+
+      - name: Install Ant
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ant
+
+      - name: Fetch ant-javacard and SDKs
+        run: |
+          curl -fsSL -o ant-javacard.jar "$ANT_JAVACARD_JAR"
+          git clone --depth 1 "$SDK_REPO" sdks
+
+      - name: Generate round-2 probe sources
+        run: |
+          mkdir -p probe/src
+          mkdir -p probe/src/p11rsapub2048
+          cat > probe/src/p11rsapub2048/RsaPub2048.java <<'JCEOF'
+          package p11rsapub2048;
+
+          import javacard.framework.APDU;
+          import javacard.framework.Applet;
+          import javacard.framework.ISO7816;
+          import javacard.framework.ISOException;
+          import javacard.security.KeyBuilder;
+
+          // 探针 P11 : RSA 公钥对象 2048（只验签用的那种）
+          // 只看 KeyBuilder 能不能造出这种密钥对象；造不出来 = 卡没有这种非对称密钥能力。
+          public class RsaPub2048 extends Applet {
+
+              private RsaPub2048() {
+                  KeyBuilder.buildKey(KeyBuilder.TYPE_RSA_PUBLIC, KeyBuilder.LENGTH_RSA_2048, false);
+              }
+
+              public static void install(byte[] bArray, short bOffset, byte bLength) {
+                  new RsaPub2048().register(bArray, (short) (bOffset + 1), bArray[bOffset]);
+              }
+
+              public void process(APDU apdu) {
+                  if (selectingApplet()) {
+                      return;
+                  }
+                  ISOException.throwIt(ISO7816.SW_INS_NOT_SUPPORTED);
+              }
+          }
+          JCEOF
+          mkdir -p probe/src/p12rsapriv2048
+          cat > probe/src/p12rsapriv2048/RsaPriv2048.java <<'JCEOF'
+          package p12rsapriv2048;
+
+          import javacard.framework.APDU;
+          import javacard.framework.Applet;
+          import javacard.framework.ISO7816;
+          import javacard.framework.ISOException;
+          import javacard.security.KeyBuilder;
+
+          // 探针 P12 : RSA 私钥对象 2048（modulus/exponent 形式）
+          // 只看 KeyBuilder 能不能造出这种密钥对象；造不出来 = 卡没有这种非对称密钥能力。
+          public class RsaPriv2048 extends Applet {
+
+              private RsaPriv2048() {
+                  KeyBuilder.buildKey(KeyBuilder.TYPE_RSA_PRIVATE, KeyBuilder.LENGTH_RSA_2048, false);
+              }
+
+              public static void install(byte[] bArray, short bOffset, byte bLength) {
+                  new RsaPriv2048().register(bArray, (short) (bOffset + 1), bArray[bOffset]);
+              }
+
+              public void process(APDU apdu) {
+                  if (selectingApplet()) {
+                      return;
+                  }
+                  ISOException.throwIt(ISO7816.SW_INS_NOT_SUPPORTED);
+              }
+          }
+          JCEOF
+          mkdir -p probe/src/p13rsacrt1024
+          cat > probe/src/p13rsacrt1024/RsaCrt1024.java <<'JCEOF'
+          package p13rsacrt1024;
+
+          import javacard.framework.APDU;
+          import javacard.framework.Applet;
+          import javacard.framework.ISO7816;
+          import javacard.framework.ISOException;
+          import javacard.security.KeyBuilder;
+
+          // 探针 P13 : RSA CRT 私钥对象 1024
+          // 只看 KeyBuilder 能不能造出这种密钥对象；造不出来 = 卡没有这种非对称密钥能力。
+          public class RsaCrt1024 extends Applet {
+
+              private RsaCrt1024() {
+                  KeyBuilder.buildKey(KeyBuilder.TYPE_RSA_CRT_PRIVATE, KeyBuilder.LENGTH_RSA_1024, false);
+              }
+
+              public static void install(byte[] bArray, short bOffset, byte bLength) {
+                  new RsaCrt1024().register(bArray, (short) (bOffset + 1), bArray[bOffset]);
+              }
+
+              public void process(APDU apdu) {
+                  if (selectingApplet()) {
+                      return;
+                  }
+                  ISOException.throwIt(ISO7816.SW_INS_NOT_SUPPORTED);
+              }
+          }
+          JCEOF
+          mkdir -p probe/src/p14rsacrt512
+          cat > probe/src/p14rsacrt512/RsaCrt512.java <<'JCEOF'
+          package p14rsacrt512;
+
+          import javacard.framework.APDU;
+          import javacard.framework.Applet;
+          import javacard.framework.ISO7816;
+          import javacard.framework.ISOException;
+          import javacard.security.KeyBuilder;
+
+          // 探针 P14 : RSA CRT 私钥对象 512（最小档，用来排除“长度/内存”因素）
+          // 只看 KeyBuilder 能不能造出这种密钥对象；造不出来 = 卡没有这种非对称密钥能力。
+          public class RsaCrt512 extends Applet {
+
+              private RsaCrt512() {
+                  KeyBuilder.buildKey(KeyBuilder.TYPE_RSA_CRT_PRIVATE, KeyBuilder.LENGTH_RSA_512, false);
+              }
+
+              public static void install(byte[] bArray, short bOffset, byte bLength) {
+                  new RsaCrt512().register(bArray, (short) (bOffset + 1), bArray[bOffset]);
+              }
+
+              public void process(APDU apdu) {
+                  if (selectingApplet()) {
+                      return;
+                  }
+                  ISOException.throwIt(ISO7816.SW_INS_NOT_SUPPORTED);
+              }
+          }
+          JCEOF
+          mkdir -p probe/src/p15ecpub256
+          cat > probe/src/p15ecpub256/EcPub256.java <<'JCEOF'
+          package p15ecpub256;
+
+          import javacard.framework.APDU;
+          import javacard.framework.Applet;
+          import javacard.framework.ISO7816;
+          import javacard.framework.ISOException;
+          import javacard.security.KeyBuilder;
+
+          // 探针 P15 : ECC 公钥对象 P-256（素域）
+          // 只看 KeyBuilder 能不能造出这种密钥对象；造不出来 = 卡没有这种非对称密钥能力。
+          public class EcPub256 extends Applet {
+
+              private EcPub256() {
+                  KeyBuilder.buildKey(KeyBuilder.TYPE_EC_FP_PUBLIC, KeyBuilder.LENGTH_EC_FP_256, false);
+              }
+
+              public static void install(byte[] bArray, short bOffset, byte bLength) {
+                  new EcPub256().register(bArray, (short) (bOffset + 1), bArray[bOffset]);
+              }
+
+              public void process(APDU apdu) {
+                  if (selectingApplet()) {
+                      return;
+                  }
+                  ISOException.throwIt(ISO7816.SW_INS_NOT_SUPPORTED);
+              }
+          }
+          JCEOF
+          mkdir -p probe/src/p16ecpriv256
+          cat > probe/src/p16ecpriv256/EcPriv256.java <<'JCEOF'
+          package p16ecpriv256;
+
+          import javacard.framework.APDU;
+          import javacard.framework.Applet;
+          import javacard.framework.ISO7816;
+          import javacard.framework.ISOException;
+          import javacard.security.KeyBuilder;
+
+          // 探针 P16 : ECC 私钥对象 P-256（素域）
+          // 只看 KeyBuilder 能不能造出这种密钥对象；造不出来 = 卡没有这种非对称密钥能力。
+          public class EcPriv256 extends Applet {
+
+              private EcPriv256() {
+                  KeyBuilder.buildKey(KeyBuilder.TYPE_EC_FP_PRIVATE, KeyBuilder.LENGTH_EC_FP_256, false);
+              }
+
+              public static void install(byte[] bArray, short bOffset, byte bLength) {
+                  new EcPriv256().register(bArray, (short) (bOffset + 1), bArray[bOffset]);
+              }
+
+              public void process(APDU apdu) {
+                  if (selectingApplet()) {
+                      return;
+                  }
+                  ISOException.throwIt(ISO7816.SW_INS_NOT_SUPPORTED);
+              }
+          }
+          JCEOF
+          mkdir -p probe/src/p17aes256
+          cat > probe/src/p17aes256/Aes256.java <<'JCEOF'
+          package p17aes256;
+
+          import javacard.framework.APDU;
+          import javacard.framework.Applet;
+          import javacard.framework.ISO7816;
+          import javacard.framework.ISOException;
+          import javacard.security.KeyBuilder;
+
+          // 探针 P17 : AES-256 密钥对象（对称侧对照）
+          // 只看 KeyBuilder 能不能造出这种密钥对象；造不出来 = 卡没有这种非对称密钥能力。
+          public class Aes256 extends Applet {
+
+              private Aes256() {
+                  KeyBuilder.buildKey(KeyBuilder.TYPE_AES, KeyBuilder.LENGTH_AES_256, false);
+              }
+
+              public static void install(byte[] bArray, short bOffset, byte bLength) {
+                  new Aes256().register(bArray, (short) (bOffset + 1), bArray[bOffset]);
+              }
+
+              public void process(APDU apdu) {
+                  if (selectingApplet()) {
+                      return;
+                  }
+                  ISOException.throwIt(ISO7816.SW_INS_NOT_SUPPORTED);
+              }
+          }
+          JCEOF
+          cat > build-probe2.xml <<'JCEOF'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <project name="jccheck-probes2" default="all" basedir=".">
+            <taskdef name="javacard" classname="pro.javacard.ant.JavaCard" classpath="ant-javacard.jar"/>
+            <property name="sdks" location="sdks"/>
+            <target name="all" depends="p11rsapub2048,p12rsapriv2048,p13rsacrt1024,p14rsacrt512,p15ecpub256,p16ecpriv256,p17aes256"/>
+            <target name="p11rsapub2048">
+              <javacard>
+                <cap jckit="${sdks}/jc305u4_kit"
+                     sources="probe/src/p11rsapub2048"
+                     package="p11rsapub2048"
+                     version="1.0"
+                     aid="A00000061700FF0011"
+                     output="probe2-p11rsapub2048.cap"
+                     verify="false">
+                  <applet class="p11rsapub2048.RsaPub2048" aid="A00000061700FF001101"/>
+                </cap>
+              </javacard>
+            </target>
+            <target name="p12rsapriv2048">
+              <javacard>
+                <cap jckit="${sdks}/jc305u4_kit"
+                     sources="probe/src/p12rsapriv2048"
+                     package="p12rsapriv2048"
+                     version="1.0"
+                     aid="A00000061700FF0012"
+                     output="probe2-p12rsapriv2048.cap"
+                     verify="false">
+                  <applet class="p12rsapriv2048.RsaPriv2048" aid="A00000061700FF001201"/>
+                </cap>
+              </javacard>
+            </target>
+            <target name="p13rsacrt1024">
+              <javacard>
+                <cap jckit="${sdks}/jc305u4_kit"
+                     sources="probe/src/p13rsacrt1024"
+                     package="p13rsacrt1024"
+                     version="1.0"
+                     aid="A00000061700FF0013"
+                     output="probe2-p13rsacrt1024.cap"
+                     verify="false">
+                  <applet class="p13rsacrt1024.RsaCrt1024" aid="A00000061700FF001301"/>
+                </cap>
+              </javacard>
+            </target>
+            <target name="p14rsacrt512">
+              <javacard>
+                <cap jckit="${sdks}/jc305u4_kit"
+                     sources="probe/src/p14rsacrt512"
+                     package="p14rsacrt512"
+                     version="1.0"
+                     aid="A00000061700FF0014"
+                     output="probe2-p14rsacrt512.cap"
+                     verify="false">
+                  <applet class="p14rsacrt512.RsaCrt512" aid="A00000061700FF001401"/>
+                </cap>
+              </javacard>
+            </target>
+            <target name="p15ecpub256">
+              <javacard>
+                <cap jckit="${sdks}/jc305u4_kit"
+                     sources="probe/src/p15ecpub256"
+                     package="p15ecpub256"
+                     version="1.0"
+                     aid="A00000061700FF0015"
+                     output="probe2-p15ecpub256.cap"
+                     verify="false">
+                  <applet class="p15ecpub256.EcPub256" aid="A00000061700FF001501"/>
+                </cap>
+              </javacard>
+            </target>
+            <target name="p16ecpriv256">
+              <javacard>
+                <cap jckit="${sdks}/jc305u4_kit"
+                     sources="probe/src/p16ecpriv256"
+                     package="p16ecpriv256"
+                     version="1.0"
+                     aid="A00000061700FF0016"
+                     output="probe2-p16ecpriv256.cap"
+                     verify="false">
+                  <applet class="p16ecpriv256.EcPriv256" aid="A00000061700FF001601"/>
+                </cap>
+              </javacard>
+            </target>
+            <target name="p17aes256">
+              <javacard>
+                <cap jckit="${sdks}/jc305u4_kit"
+                     sources="probe/src/p17aes256"
+                     package="p17aes256"
+                     version="1.0"
+                     aid="A00000061700FF0017"
+                     output="probe2-p17aes256.cap"
+                     verify="false">
+                  <applet class="p17aes256.Aes256" aid="A00000061700FF001701"/>
+                </cap>
+              </javacard>
+            </target>
+          </project>
+          JCEOF
+          find probe/src -name "p1*.java" | sort
+      - name: Build probes
+        run: ant -f build-probe2.xml all
+
+      - name: List results
+        run: ls -l probe2-*.cap
+
+      - name: Upload probes
+        uses: actions/upload-artifact@v4
+        with:
+          name: probe2-caps
+          path: "probe2-*.cap"
           if-no-files-found: error
