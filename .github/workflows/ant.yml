@@ -1,60 +1,129 @@
+# =============================================================================
+#  ykneo-openpgp -> OpenPGP applet CAP 自动编译
+#
+#  用法：把本文件放到 fork 的 .github/workflows/build-cap.yml
+#        push 到 master/main，或者在 Actions 页面点 "Run workflow"
+#        跑完后在 Actions 页面的 Artifacts 里下载 .cap 文件
+#
+#  为什么要编两个版本：
+#    * openpgpcard-jc222.cap —— Java Card 2.2.2 目标。JCOP 2.4.1 芯片、
+#      以及市面上"J3R200 EMV 版/阉割版"里很多其实是 JC 2.2.2 的卡都用它。
+#      这个版本和 Yubico 官方发布流程完全一致，最稳。
+#    * openpgpcard-jc305.cap —— Java Card 3.0.5 目标。真正的 NXP J3R200
+#      (JCOP 4 / Java Card 3.0.5) 用这个最合适（2.2.2 的 CAP 通常也能装，
+#      但 3.0.5 的 CAP 更保险）。
+#
+#  先装哪个：优先 jc222，装不上（6A80 / 6985 / 6A84）再试 jc305。
+# =============================================================================
+
 name: Build OpenPGP CAP
 
 on:
-  workflow_dispatch:
   push:
-    branches: [ master, main ]
+    branches: [master, main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  # Oracle 官方 Java Card SDK 的重打包仓库（含 jc222_kit / jc305u4_kit 等）
+  SDK_REPO: https://github.com/martinpaljak/oracle_javacard_sdks.git
+  ANT_JAVACARD_JAR: https://github.com/martinpaljak/ant-javacard/releases/latest/download/ant-javacard.jar
 
 jobs:
-  build:
+  # ---------------------------------------------------------------------------
+  # 方案一：上游 Yubico 的原生 Ant 构建（Java Card 2.2.2 SDK + 项目自带 build.xml）
+  #         build.xml 读的是 -DJAVACARD_HOME=<kit 目录>
+  # ---------------------------------------------------------------------------
+  cap-jc222-upstream:
+    name: CAP target JavaCard 2.2.2 (upstream ant)
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout repository with submodules
+      - name: Checkout
         uses: actions/checkout@v4
-        with:
-          submodules: recursive
-          fetch-depth: 0
 
+      # 必须 JDK 8：build.xml 里写死了 source/target=1.5，高版本 javac 不认；
+      # Java Card 2.2.2 的 converter 也只在 8 上最省心
       - name: Set up JDK 8
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@v4
         with:
-          distribution: 'temurin'
-          java-version: '8'
+          distribution: temurin
+          java-version: "8"
 
       - name: Install Ant
-        run: sudo apt-get update && sudo apt-get install -y ant
-
-      # 关键步骤：精准下载 JavaCard 2.2.2 并提取构建所需的环境
-      - name: Setup JavaCard SDK
         run: |
-          curl -L -o jcsdk.zip https://github.com/martinpaljak/oracle_javacard_sdks/archive/refs/heads/master.zip
-          unzip -q jcsdk.zip
-          
-          # 创建一个标准 SDK 根目录
-          mkdir -p $GITHUB_WORKSPACE/javacard_home/lib
-          
-          # 兼容不同 SDK 版本，优先复制 jc222 或提取 api.jar
-          if [ -d "$GITHUB_WORKSPACE/oracle_javacard_sdks-master/jc222_kit" ]; then
-            cp -r $GITHUB_WORKSPACE/oracle_javacard_sdks-master/jc222_kit/* $GITHUB_WORKSPACE/javacard_home/
-          fi
-          
-          # 确保 lib/api.jar 绝对存在（ykneo 的 build.xml 强依赖这个路径）
-          find $GITHUB_WORKSPACE/oracle_javacard_sdks-master/ -name "api.jar" -exec cp {} $GITHUB_WORKSPACE/javacard_home/lib/api.jar \;
-          
-          # 注入给全局环境变量（build.xml 读取的是 env.JC_HOME）
-          echo "JC_HOME=$GITHUB_WORKSPACE/javacard_home" >> $GITHUB_ENV
+          sudo apt-get update
+          sudo apt-get install -y ant
 
-      # 编译：同时传入环境变量与系统属性
-      - name: Build with Ant
+      - name: Fetch Oracle JavaCard SDKs (CI repack)
         run: |
-          ant -Denv.JC_HOME="$JC_HOME" -DJC_HOME="$JC_HOME" -Djc.home="$JC_HOME"
+          git clone --depth 1 "$SDK_REPO" sdks
+          ls sdks
 
-      # 收集打包产物
-      - name: Upload CAP Artifact
+      - name: Build with ant
+        run: ant -DJAVACARD_HOME="$PWD/sdks/jc222_kit"
+
+      - name: Collect CAP
+        run: |
+          ls -l applet/bin/openpgpcard/javacard/
+          cp applet/bin/openpgpcard/javacard/openpgpcard.cap openpgpcard-jc222.cap
+
+      - name: Upload CAP
         uses: actions/upload-artifact@v4
         with:
-          name: openpgp-cap
-          path: |
-            **/*.cap
-            applet/bin/**/*.cap
+          name: openpgpcard-jc222
+          path: openpgpcard-jc222.cap
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------------------
+  # 方案二：用 ant-javacard 走现代工具链（同一个源，同时出 2.2.2 和 3.0.5 两个 CAP）
+  #         ant-javacard 会自动处理各 SDK 的 converter 调用差异、exportpath 等
+  # ---------------------------------------------------------------------------
+  cap-antjavacard:
+    name: CAP target JavaCard 2.2.2 + 3.0.5 (ant-javacard)
+    runs-on: ubuntu-latest
+    # 这个 applet 是 2012~2015 年为 JC 2.2.2 写的，用 3.0.5 API 编译时
+    # 个别算法常量可能不存在；这一路失败不影响上面的 jc222 产物
+    continue-on-error: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 8
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "8"
+
+      - name: Install Ant
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ant
+
+      - name: Fetch ant-javacard and SDKs
+        run: |
+          curl -fsSL -o ant-javacard.jar "$ANT_JAVACARD_JAR"
+          git clone --depth 1 "$SDK_REPO" sdks
+          ls -l ant-javacard.jar
+
+      - name: Show toolchain versions
+        run: |
+          java -version
+          javac -version
+          ant -version
+          ls sdks
+
+      - name: Build CAPs
+        run: ant -f build-cap.xml all
+
+      - name: List results
+        run: ls -l *.cap
+
+      - name: Upload CAPs
+        uses: actions/upload-artifact@v4
+        with:
+          name: openpgpcard-jc222-jc305
+          path: "*.cap"
+          if-no-files-found: error
