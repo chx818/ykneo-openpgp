@@ -1,44 +1,48 @@
 name: Build OpenPGP CAP
 
 on:
-  workflow_dispatch: # 让你可以在网页上手动点按钮触发构建
+  workflow_dispatch:
   push:
-    branches: [ "master" ]
-  pull_request:
-    branches: [ "master" ]
+    branches: [ master, main ]
 
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v4
+      # 1. 递归拉取子模块（解决找不到 ant-javacard 的问题）
+      - name: Checkout repository with submodules
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
 
-    # 1. 必须降级到 JDK 8，否则 JavaCard 转换器必崩
-    - name: Set up JDK 8
-      uses: actions/setup-java@v4
-      with:
-        java-version: '8'
-        distribution: 'temurin'
+      # 2. 使用最新版 setup-java@v5 并固定 JDK 8
+      - name: Set up JDK 8
+        uses: actions/setup-java@v5
+        with:
+          distribution: 'temurin'
+          java-version: '8'
 
-    # 2. 安装 Ant 工具
-    - name: Set up Ant
-      run: sudo apt-get update && sudo apt-get install -y ant
+      # 3. 安装 Ant 工具
+      - name: Install Ant
+        run: sudo apt-get update && sudo apt-get install -y ant
 
-    # 3. 自动拉取 JavaCard SDK 3.0.4 并注入环境变量
-    - name: Download JavaCard SDK
-      run: |
-        curl -L -o jcsdk.zip https://github.com/martinpaljak/oracle_javacard_sdks/archive/refs/heads/master.zip
-        unzip -q jcsdk.zip
-        echo "JC_HOME=$GITHUB_WORKSPACE/oracle_javacard_sdks-master/jc304_kit" >> $GITHUB_ENV
+      # 4. 下载 JavaCard 3.0.4 SDK
+      - name: Download JavaCard SDK
+        run: |
+          curl -L -o jcsdk.zip https://github.com/martinpaljak/oracle_javacard_sdks/archive/refs/heads/master.zip
+          unzip -q jcsdk.zip
+          echo "JC_HOME=$GITHUB_WORKSPACE/oracle_javacard_sdks-master/jc304_kit" >> $GITHUB_ENV
 
-    # 4. 执行编译（把 JC_HOME 传给 Ant）
-    - name: Build with Ant
-      run: ant -Djc.home=$JC_HOME
+      # 5. 编译并打印详细日志（若失败方便定位）
+      - name: Build with Ant
+        run: |
+          ant -verbose -Djc.home="$JC_HOME"
 
-    # 5. 把生成的 .cap 文件作为产物上传，供你在网页上直接下载
-    - name: Upload CAP File
-      uses: actions/upload-artifact@v4
-      with:
-        name: openpgp-cap
-        path: "**/*.cap"
+      # 6. 上传生成的 CAP 产物
+      - name: Upload CAP File
+        uses: actions/upload-artifact@v4
+        with:
+          name: openpgp-cap
+          path: "**/*.cap"
