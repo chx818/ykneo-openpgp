@@ -1,0 +1,134 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  密码学能力探针：每个 CAP 只有一个 applet，它在 INSTALL 时尝试一种密码学能力。
+  卡支持 -> 安装成功；卡不支持 -> 安装失败 6F00。
+  这样不用任何额外工具，光看 gp 的 install 命令返回码就能画出这张卡的能力表。
+  放到仓库根目录，和 applet/ 平级，配合 probe/ 目录使用。
+-->
+<project name="jccheck-probes" default="all" basedir=".">
+
+  <taskdef name="javacard" classname="pro.javacard.ant.JavaCard" classpath="ant-javacard.jar"/>
+
+  <property name="sdks" location="sdks"/>
+
+  <target name="all" depends="p0,p1,p2,p3,p4,p5,p6,p7,p8"/>
+
+  <target name="p0" description="对照组，什么都不做">
+    <javacard>
+      <cap jckit="${sdks}/jc305u4_kit"
+           sources="probe/src/p0null"
+           package="p0null"
+           version="1.0"
+           aid="A00000061700FF0000"
+           output="probe-p0-null.cap"
+           verify="false">
+        <applet class="p0null.Null0" aid="A00000061700FF000001"/>
+      </cap>
+    </javacard>
+  </target>
+  <target name="p1" description="RSA-CRT 1024 密钥对象">
+    <javacard>
+      <cap jckit="${sdks}/jc305u4_kit"
+           sources="probe/src/p1rsa1024crt"
+           package="p1rsa1024crt"
+           version="1.0"
+           aid="A00000061700FF0001"
+           output="probe-p1-rsa1024crt.cap"
+           verify="false">
+        <applet class="p1rsa1024crt.Rsa1024Crt" aid="A00000061700FF000101"/>
+      </cap>
+    </javacard>
+  </target>
+  <target name="p2" description="RSA-CRT 2048 密钥对象（ykneo 用的就是这个）">
+    <javacard>
+      <cap jckit="${sdks}/jc305u4_kit"
+           sources="probe/src/p2rsa2048crt"
+           package="p2rsa2048crt"
+           version="1.0"
+           aid="A00000061700FF0002"
+           output="probe-p2-rsa2048crt.cap"
+           verify="false">
+        <applet class="p2rsa2048crt.Rsa2048Crt" aid="A00000061700FF000201"/>
+      </cap>
+    </javacard>
+  </target>
+  <target name="p3" description="RSA（非 CRT）2048 密钥对象">
+    <javacard>
+      <cap jckit="${sdks}/jc305u4_kit"
+           sources="probe/src/p3rsa2048"
+           package="p3rsa2048"
+           version="1.0"
+           aid="A00000061700FF0003"
+           output="probe-p3-rsa2048.cap"
+           verify="false">
+        <applet class="p3rsa2048.Rsa2048" aid="A00000061700FF000301"/>
+      </cap>
+    </javacard>
+  </target>
+  <target name="p4" description="3DES 安全消息组件（MAC + CBC + 瞬时 DES3 密钥）">
+    <javacard>
+      <cap jckit="${sdks}/jc305u4_kit"
+           sources="probe/src/p4des3sm"
+           package="p4des3sm"
+           version="1.0"
+           aid="A00000061700FF0004"
+           output="probe-p4-des3sm.cap"
+           verify="false">
+        <applet class="p4des3sm.Des3Sm" aid="A00000061700FF000401"/>
+      </cap>
+    </javacard>
+  </target>
+  <target name="p5" description="SHA-1 / SHA-256 摘要">
+    <javacard>
+      <cap jckit="${sdks}/jc305u4_kit"
+           sources="probe/src/p5digests"
+           package="p5digests"
+           version="1.0"
+           aid="A00000061700FF0005"
+           output="probe-p5-digests.cap"
+           verify="false">
+        <applet class="p5digests.Digests" aid="A00000061700FF000501"/>
+      </cap>
+    </javacard>
+  </target>
+  <target name="p6" description="安全随机数">
+    <javacard>
+      <cap jckit="${sdks}/jc305u4_kit"
+           sources="probe/src/p6rng"
+           package="p6rng"
+           version="1.0"
+           aid="A00000061700FF0006"
+           output="probe-p6-rng.cap"
+           verify="false">
+        <applet class="p6rng.Rng" aid="A00000061700FF000601"/>
+      </cap>
+    </javacard>
+  </target>
+  <target name="p7" description="RSA-CRT 2048 并且真的生成一对密钥">
+    <javacard>
+      <cap jckit="${sdks}/jc305u4_kit"
+           sources="probe/src/p7rsa2048gen"
+           package="p7rsa2048gen"
+           version="1.0"
+           aid="A00000061700FF0007"
+           output="probe-p7-rsa2048gen.cap"
+           verify="false">
+        <applet class="p7rsa2048gen.Rsa2048Gen" aid="A00000061700FF000701"/>
+      </cap>
+    </javacard>
+  </target>
+  <target name="p8" description="ykneo 安装时的全套密码学组件（组合探针）">
+    <javacard>
+      <cap jckit="${sdks}/jc305u4_kit"
+           sources="probe/src/p8ykneolike"
+           package="p8ykneolike"
+           version="1.0"
+           aid="A00000061700FF0008"
+           output="probe-p8-ykneolike.cap"
+           verify="false">
+        <applet class="p8ykneolike.YkneoLike" aid="A00000061700FF000801"/>
+      </cap>
+    </javacard>
+  </target>
+</project>
+
