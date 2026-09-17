@@ -7,7 +7,7 @@
 #  三个 job：
 #    cap-jc222-upstream : 上游原生 Ant 构建，Java Card 2.2.2 目标（最稳）
 #    cap-antjavacard    : ant-javacard，同一个源出 2.2.2 / 3.0.5 两个 CAP
-#    probe-caps         : 9 个极小探针 applet，用来问清楚这张卡支持哪些算法
+#    probe-caps         : 11 个极小探针 applet，用来问清楚这张卡支持哪些算法（源码内联在本文件里）
 #                         卡不支持 -> INSTALL 时抛 CryptoException -> 返回 6F00
 #                         卡支持   -> 安装成功
 # =============================================================================
@@ -124,7 +124,7 @@ jobs:
 
   # ---------------------------------------------------------------------------
   # 方案三：密码学能力探针（诊断"阉割卡"）
-  #         Artifacts -> probe-caps -> 9 个 probe-pN-*.cap
+  #         Artifacts -> probe-caps -> 11 个 probe-*.cap
   #         逐个安装，哪个装得上就说明卡支持那项能力
   # ---------------------------------------------------------------------------
   probe-caps:
@@ -150,18 +150,566 @@ jobs:
           curl -fsSL -o ant-javacard.jar "$ANT_JAVACARD_JAR"
           git clone --depth 1 "$SDK_REPO" sdks
 
-      # 源码是在 Windows 上生成的，可能带 UTF-8 BOM，javac 会报
-      # "illegal character: '\ufeff'"，所以构建前先统一去掉
-      - name: Strip UTF-8 BOM from probe sources
+      # 探针源码 / build-probe.xml 都由下面这步生成，仓库里有旧版本会被覆盖，
+      # 所以不需要手动同步 Java 文件，也不会再有 BOM / 常量名不同步的问题
+      - name: Generate probe sources and build file
         run: |
-          python3 - <<'PY'
-          import pathlib
-          for p in pathlib.Path('probe/src').rglob('*.java'):
-              b = p.read_bytes()
-              if b.startswith(b'\xef\xbb\xbf'):
-                  p.write_bytes(b[3:])
-                  print('stripped BOM:', p)
-          PY
+          mkdir -p probe/src
+          mkdir -p probe/src/p0null
+          cat > probe/src/p0null/Null0.java <<'JCEOF'
+          package p0null;
+
+          import javacard.framework.APDU;
+          import javacard.framework.Applet;
+          import javacard.framework.ISO7816;
+          import javacard.framework.ISOException;
+          import javacard.security.KeyBuilder;
+          import javacard.security.KeyPair;
+          import javacard.security.MessageDigest;
+          import javacard.security.RandomData;
+          import javacard.security.Signature;
+          import javacardx.crypto.Cipher;
+
+          // 探针 P0 : 对照组，什么都不做
+          // 这段代码在 applet 实例被构造时执行（也就是 INSTALL 的时候）。
+          // 卡支持 -> install 成功(9000)；卡不支持 -> 抛 CryptoException -> install 返回 6F00。
+          public class Null0 extends Applet {
+
+              private Null0() {
+                  // 空探针
+              }
+
+              public static void install(byte[] bArray, short bOffset, byte bLength) {
+                  new Null0().register(bArray, (short) (bOffset + 1), bArray[bOffset]);
+              }
+
+              public void process(APDU apdu) {
+                  if (selectingApplet()) {
+                      return;
+                  }
+                  ISOException.throwIt(ISO7816.SW_INS_NOT_SUPPORTED);
+              }
+          }
+
+          JCEOF
+          mkdir -p probe/src/p1rsa1024crt
+          cat > probe/src/p1rsa1024crt/Rsa1024Crt.java <<'JCEOF'
+          package p1rsa1024crt;
+
+          import javacard.framework.APDU;
+          import javacard.framework.Applet;
+          import javacard.framework.ISO7816;
+          import javacard.framework.ISOException;
+          import javacard.security.KeyBuilder;
+          import javacard.security.KeyPair;
+          import javacard.security.MessageDigest;
+          import javacard.security.RandomData;
+          import javacard.security.Signature;
+          import javacardx.crypto.Cipher;
+
+          // 探针 P1 : RSA-CRT 1024 密钥对象
+          // 这段代码在 applet 实例被构造时执行（也就是 INSTALL 的时候）。
+          // 卡支持 -> install 成功(9000)；卡不支持 -> 抛 CryptoException -> install 返回 6F00。
+          public class Rsa1024Crt extends Applet {
+
+              private Rsa1024Crt() {
+                  new KeyPair(KeyPair.ALG_RSA_CRT, (short) 1024);
+              }
+
+              public static void install(byte[] bArray, short bOffset, byte bLength) {
+                  new Rsa1024Crt().register(bArray, (short) (bOffset + 1), bArray[bOffset]);
+              }
+
+              public void process(APDU apdu) {
+                  if (selectingApplet()) {
+                      return;
+                  }
+                  ISOException.throwIt(ISO7816.SW_INS_NOT_SUPPORTED);
+              }
+          }
+
+          JCEOF
+          mkdir -p probe/src/p2rsa2048crt
+          cat > probe/src/p2rsa2048crt/Rsa2048Crt.java <<'JCEOF'
+          package p2rsa2048crt;
+
+          import javacard.framework.APDU;
+          import javacard.framework.Applet;
+          import javacard.framework.ISO7816;
+          import javacard.framework.ISOException;
+          import javacard.security.KeyBuilder;
+          import javacard.security.KeyPair;
+          import javacard.security.MessageDigest;
+          import javacard.security.RandomData;
+          import javacard.security.Signature;
+          import javacardx.crypto.Cipher;
+
+          // 探针 P2 : RSA-CRT 2048 密钥对象（ykneo 用的就是这个）
+          // 这段代码在 applet 实例被构造时执行（也就是 INSTALL 的时候）。
+          // 卡支持 -> install 成功(9000)；卡不支持 -> 抛 CryptoException -> install 返回 6F00。
+          public class Rsa2048Crt extends Applet {
+
+              private Rsa2048Crt() {
+                  new KeyPair(KeyPair.ALG_RSA_CRT, (short) 2048);
+              }
+
+              public static void install(byte[] bArray, short bOffset, byte bLength) {
+                  new Rsa2048Crt().register(bArray, (short) (bOffset + 1), bArray[bOffset]);
+              }
+
+              public void process(APDU apdu) {
+                  if (selectingApplet()) {
+                      return;
+                  }
+                  ISOException.throwIt(ISO7816.SW_INS_NOT_SUPPORTED);
+              }
+          }
+
+          JCEOF
+          mkdir -p probe/src/p3rsa2048
+          cat > probe/src/p3rsa2048/Rsa2048.java <<'JCEOF'
+          package p3rsa2048;
+
+          import javacard.framework.APDU;
+          import javacard.framework.Applet;
+          import javacard.framework.ISO7816;
+          import javacard.framework.ISOException;
+          import javacard.security.KeyBuilder;
+          import javacard.security.KeyPair;
+          import javacard.security.MessageDigest;
+          import javacard.security.RandomData;
+          import javacard.security.Signature;
+          import javacardx.crypto.Cipher;
+
+          // 探针 P3 : RSA（非 CRT）2048 密钥对象
+          // 这段代码在 applet 实例被构造时执行（也就是 INSTALL 的时候）。
+          // 卡支持 -> install 成功(9000)；卡不支持 -> 抛 CryptoException -> install 返回 6F00。
+          public class Rsa2048 extends Applet {
+
+              private Rsa2048() {
+                  new KeyPair(KeyPair.ALG_RSA, (short) 2048);
+              }
+
+              public static void install(byte[] bArray, short bOffset, byte bLength) {
+                  new Rsa2048().register(bArray, (short) (bOffset + 1), bArray[bOffset]);
+              }
+
+              public void process(APDU apdu) {
+                  if (selectingApplet()) {
+                      return;
+                  }
+                  ISOException.throwIt(ISO7816.SW_INS_NOT_SUPPORTED);
+              }
+          }
+
+          JCEOF
+          mkdir -p probe/src/p4des3sm
+          cat > probe/src/p4des3sm/Des3Sm.java <<'JCEOF'
+          package p4des3sm;
+
+          import javacard.framework.APDU;
+          import javacard.framework.Applet;
+          import javacard.framework.ISO7816;
+          import javacard.framework.ISOException;
+          import javacard.security.KeyBuilder;
+          import javacard.security.KeyPair;
+          import javacard.security.MessageDigest;
+          import javacard.security.RandomData;
+          import javacard.security.Signature;
+          import javacardx.crypto.Cipher;
+
+          // 探针 P4 : 3DES 安全消息组件（MAC + CBC + 瞬时 DES3 密钥）
+          // 这段代码在 applet 实例被构造时执行（也就是 INSTALL 的时候）。
+          // 卡支持 -> install 成功(9000)；卡不支持 -> 抛 CryptoException -> install 返回 6F00。
+          public class Des3Sm extends Applet {
+
+              private Des3Sm() {
+                  Signature.getInstance(Signature.ALG_DES_MAC8_ISO9797_1_M2_ALG3, false);
+                  Cipher.getInstance(Cipher.ALG_DES_CBC_ISO9797_M2, false);
+                  KeyBuilder.buildKey(KeyBuilder.TYPE_DES_TRANSIENT_DESELECT, KeyBuilder.LENGTH_DES3_2KEY, false);
+              }
+
+              public static void install(byte[] bArray, short bOffset, byte bLength) {
+                  new Des3Sm().register(bArray, (short) (bOffset + 1), bArray[bOffset]);
+              }
+
+              public void process(APDU apdu) {
+                  if (selectingApplet()) {
+                      return;
+                  }
+                  ISOException.throwIt(ISO7816.SW_INS_NOT_SUPPORTED);
+              }
+          }
+
+          JCEOF
+          mkdir -p probe/src/p5digests
+          cat > probe/src/p5digests/Digests.java <<'JCEOF'
+          package p5digests;
+
+          import javacard.framework.APDU;
+          import javacard.framework.Applet;
+          import javacard.framework.ISO7816;
+          import javacard.framework.ISOException;
+          import javacard.security.KeyBuilder;
+          import javacard.security.KeyPair;
+          import javacard.security.MessageDigest;
+          import javacard.security.RandomData;
+          import javacard.security.Signature;
+          import javacardx.crypto.Cipher;
+
+          // 探针 P5 : SHA-1 / SHA-256 摘要
+          // 这段代码在 applet 实例被构造时执行（也就是 INSTALL 的时候）。
+          // 卡支持 -> install 成功(9000)；卡不支持 -> 抛 CryptoException -> install 返回 6F00。
+          public class Digests extends Applet {
+
+              private Digests() {
+                  MessageDigest.getInstance(MessageDigest.ALG_SHA, false);
+                  MessageDigest.getInstance(MessageDigest.ALG_SHA_256, false);
+              }
+
+              public static void install(byte[] bArray, short bOffset, byte bLength) {
+                  new Digests().register(bArray, (short) (bOffset + 1), bArray[bOffset]);
+              }
+
+              public void process(APDU apdu) {
+                  if (selectingApplet()) {
+                      return;
+                  }
+                  ISOException.throwIt(ISO7816.SW_INS_NOT_SUPPORTED);
+              }
+          }
+
+          JCEOF
+          mkdir -p probe/src/p6rng
+          cat > probe/src/p6rng/Rng.java <<'JCEOF'
+          package p6rng;
+
+          import javacard.framework.APDU;
+          import javacard.framework.Applet;
+          import javacard.framework.ISO7816;
+          import javacard.framework.ISOException;
+          import javacard.security.KeyBuilder;
+          import javacard.security.KeyPair;
+          import javacard.security.MessageDigest;
+          import javacard.security.RandomData;
+          import javacard.security.Signature;
+          import javacardx.crypto.Cipher;
+
+          // 探针 P6 : 安全随机数
+          // 这段代码在 applet 实例被构造时执行（也就是 INSTALL 的时候）。
+          // 卡支持 -> install 成功(9000)；卡不支持 -> 抛 CryptoException -> install 返回 6F00。
+          public class Rng extends Applet {
+
+              private Rng() {
+                  RandomData.getInstance(RandomData.ALG_SECURE_RANDOM);
+              }
+
+              public static void install(byte[] bArray, short bOffset, byte bLength) {
+                  new Rng().register(bArray, (short) (bOffset + 1), bArray[bOffset]);
+              }
+
+              public void process(APDU apdu) {
+                  if (selectingApplet()) {
+                      return;
+                  }
+                  ISOException.throwIt(ISO7816.SW_INS_NOT_SUPPORTED);
+              }
+          }
+
+          JCEOF
+          mkdir -p probe/src/p7rsa2048gen
+          cat > probe/src/p7rsa2048gen/Rsa2048Gen.java <<'JCEOF'
+          package p7rsa2048gen;
+
+          import javacard.framework.APDU;
+          import javacard.framework.Applet;
+          import javacard.framework.ISO7816;
+          import javacard.framework.ISOException;
+          import javacard.security.KeyBuilder;
+          import javacard.security.KeyPair;
+          import javacard.security.MessageDigest;
+          import javacard.security.RandomData;
+          import javacard.security.Signature;
+          import javacardx.crypto.Cipher;
+
+          // 探针 P7 : RSA-CRT 2048 并且真的生成一对密钥
+          // 这段代码在 applet 实例被构造时执行（也就是 INSTALL 的时候）。
+          // 卡支持 -> install 成功(9000)；卡不支持 -> 抛 CryptoException -> install 返回 6F00。
+          public class Rsa2048Gen extends Applet {
+
+              private Rsa2048Gen() {
+                  KeyPair kp = new KeyPair(KeyPair.ALG_RSA_CRT, (short) 2048);
+                  kp.genKeyPair();
+              }
+
+              public static void install(byte[] bArray, short bOffset, byte bLength) {
+                  new Rsa2048Gen().register(bArray, (short) (bOffset + 1), bArray[bOffset]);
+              }
+
+              public void process(APDU apdu) {
+                  if (selectingApplet()) {
+                      return;
+                  }
+                  ISOException.throwIt(ISO7816.SW_INS_NOT_SUPPORTED);
+              }
+          }
+
+          JCEOF
+          mkdir -p probe/src/p8ykneolike
+          cat > probe/src/p8ykneolike/YkneoLike.java <<'JCEOF'
+          package p8ykneolike;
+
+          import javacard.framework.APDU;
+          import javacard.framework.Applet;
+          import javacard.framework.ISO7816;
+          import javacard.framework.ISOException;
+          import javacard.security.KeyBuilder;
+          import javacard.security.KeyPair;
+          import javacard.security.MessageDigest;
+          import javacard.security.RandomData;
+          import javacard.security.Signature;
+          import javacardx.crypto.Cipher;
+
+          // 探针 P8 : ykneo 安装时的全套密码学组件（组合探针）
+          // 这段代码在 applet 实例被构造时执行（也就是 INSTALL 的时候）。
+          // 卡支持 -> install 成功(9000)；卡不支持 -> 抛 CryptoException -> install 返回 6F00。
+          public class YkneoLike extends Applet {
+
+              private YkneoLike() {
+                  new KeyPair(KeyPair.ALG_RSA_CRT, (short) 2048);
+                  Signature.getInstance(Signature.ALG_DES_MAC8_ISO9797_1_M2_ALG3, false);
+                  Cipher.getInstance(Cipher.ALG_DES_CBC_ISO9797_M2, false);
+                  KeyBuilder.buildKey(KeyBuilder.TYPE_DES_TRANSIENT_DESELECT, KeyBuilder.LENGTH_DES3_2KEY, false);
+                  MessageDigest.getInstance(MessageDigest.ALG_SHA, false);
+                  MessageDigest.getInstance(MessageDigest.ALG_SHA_256, false);
+                  RandomData.getInstance(RandomData.ALG_SECURE_RANDOM);
+              }
+
+              public static void install(byte[] bArray, short bOffset, byte bLength) {
+                  new YkneoLike().register(bArray, (short) (bOffset + 1), bArray[bOffset]);
+              }
+
+              public void process(APDU apdu) {
+                  if (selectingApplet()) {
+                      return;
+                  }
+                  ISOException.throwIt(ISO7816.SW_INS_NOT_SUPPORTED);
+              }
+          }
+
+          JCEOF
+          mkdir -p probe/src/p9rng305
+          cat > probe/src/p9rng305/Rng305.java <<'JCEOF'
+          package p9rng305;
+
+          import javacard.framework.APDU;
+          import javacard.framework.Applet;
+          import javacard.framework.ISO7816;
+          import javacard.framework.ISOException;
+          import javacard.security.RandomData;
+
+          // 探针 P9 : 3.0.5 的 RandomData.ALG_PRESEEDED_DRBG（替代被弃用的 SECURE_RANDOM）
+          public class Rng305 extends Applet {
+
+              private Rng305() {
+                  RandomData.getInstance(RandomData.ALG_PRESEEDED_DRBG);
+              }
+
+              public static void install(byte[] bArray, short bOffset, byte bLength) {
+                  new Rng305().register(bArray, (short) (bOffset + 1), bArray[bOffset]);
+              }
+
+              public void process(APDU apdu) {
+                  if (selectingApplet()) {
+                      return;
+                  }
+                  ISOException.throwIt(ISO7816.SW_INS_NOT_SUPPORTED);
+              }
+          }
+          JCEOF
+          mkdir -p probe/src/p10rngtrng
+          cat > probe/src/p10rngtrng/RngTrng.java <<'JCEOF'
+          package p10rngtrng;
+
+          import javacard.framework.APDU;
+          import javacard.framework.Applet;
+          import javacard.framework.ISO7816;
+          import javacard.framework.ISOException;
+          import javacard.security.RandomData;
+
+          // 探针 P10 : 3.0.5 的 RandomData.ALG_TRNG（硬件真随机数）
+          public class RngTrng extends Applet {
+
+              private RngTrng() {
+                  RandomData.getInstance(RandomData.ALG_TRNG);
+              }
+
+              public static void install(byte[] bArray, short bOffset, byte bLength) {
+                  new RngTrng().register(bArray, (short) (bOffset + 1), bArray[bOffset]);
+              }
+
+              public void process(APDU apdu) {
+                  if (selectingApplet()) {
+                      return;
+                  }
+                  ISOException.throwIt(ISO7816.SW_INS_NOT_SUPPORTED);
+              }
+          }
+          JCEOF
+          cat > build-probe.xml <<'JCEOF'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <project name="jccheck-probes" default="all" basedir=".">
+            <taskdef name="javacard" classname="pro.javacard.ant.JavaCard" classpath="ant-javacard.jar"/>
+            <property name="sdks" location="sdks"/>
+            <target name="all" depends="p0null,p1rsa1024crt,p2rsa2048crt,p3rsa2048,p4des3sm,p5digests,p6rng,p7rsa2048gen,p8ykneolike,p9rng305,p10rngtrng"/>
+            <target name="p0null">
+              <javacard>
+                <cap jckit="${sdks}/jc305u4_kit"
+                     sources="probe/src/p0null"
+                     package="p0null"
+                     version="1.0"
+                     aid="A00000061700FF0000"
+                     output="probe-p0null.cap"
+                     verify="false">
+                  <applet class="p0null.Null0" aid="A00000061700FF000001"/>
+                </cap>
+              </javacard>
+            </target>
+            <target name="p1rsa1024crt">
+              <javacard>
+                <cap jckit="${sdks}/jc305u4_kit"
+                     sources="probe/src/p1rsa1024crt"
+                     package="p1rsa1024crt"
+                     version="1.0"
+                     aid="A00000061700FF0001"
+                     output="probe-p1rsa1024crt.cap"
+                     verify="false">
+                  <applet class="p1rsa1024crt.Rsa1024Crt" aid="A00000061700FF000101"/>
+                </cap>
+              </javacard>
+            </target>
+            <target name="p2rsa2048crt">
+              <javacard>
+                <cap jckit="${sdks}/jc305u4_kit"
+                     sources="probe/src/p2rsa2048crt"
+                     package="p2rsa2048crt"
+                     version="1.0"
+                     aid="A00000061700FF0002"
+                     output="probe-p2rsa2048crt.cap"
+                     verify="false">
+                  <applet class="p2rsa2048crt.Rsa2048Crt" aid="A00000061700FF000201"/>
+                </cap>
+              </javacard>
+            </target>
+            <target name="p3rsa2048">
+              <javacard>
+                <cap jckit="${sdks}/jc305u4_kit"
+                     sources="probe/src/p3rsa2048"
+                     package="p3rsa2048"
+                     version="1.0"
+                     aid="A00000061700FF0003"
+                     output="probe-p3rsa2048.cap"
+                     verify="false">
+                  <applet class="p3rsa2048.Rsa2048" aid="A00000061700FF000301"/>
+                </cap>
+              </javacard>
+            </target>
+            <target name="p4des3sm">
+              <javacard>
+                <cap jckit="${sdks}/jc305u4_kit"
+                     sources="probe/src/p4des3sm"
+                     package="p4des3sm"
+                     version="1.0"
+                     aid="A00000061700FF0004"
+                     output="probe-p4des3sm.cap"
+                     verify="false">
+                  <applet class="p4des3sm.Des3Sm" aid="A00000061700FF000401"/>
+                </cap>
+              </javacard>
+            </target>
+            <target name="p5digests">
+              <javacard>
+                <cap jckit="${sdks}/jc305u4_kit"
+                     sources="probe/src/p5digests"
+                     package="p5digests"
+                     version="1.0"
+                     aid="A00000061700FF0005"
+                     output="probe-p5digests.cap"
+                     verify="false">
+                  <applet class="p5digests.Digests" aid="A00000061700FF000501"/>
+                </cap>
+              </javacard>
+            </target>
+            <target name="p6rng">
+              <javacard>
+                <cap jckit="${sdks}/jc305u4_kit"
+                     sources="probe/src/p6rng"
+                     package="p6rng"
+                     version="1.0"
+                     aid="A00000061700FF0006"
+                     output="probe-p6rng.cap"
+                     verify="false">
+                  <applet class="p6rng.Rng" aid="A00000061700FF000601"/>
+                </cap>
+              </javacard>
+            </target>
+            <target name="p7rsa2048gen">
+              <javacard>
+                <cap jckit="${sdks}/jc305u4_kit"
+                     sources="probe/src/p7rsa2048gen"
+                     package="p7rsa2048gen"
+                     version="1.0"
+                     aid="A00000061700FF0007"
+                     output="probe-p7rsa2048gen.cap"
+                     verify="false">
+                  <applet class="p7rsa2048gen.Rsa2048Gen" aid="A00000061700FF000701"/>
+                </cap>
+              </javacard>
+            </target>
+            <target name="p8ykneolike">
+              <javacard>
+                <cap jckit="${sdks}/jc305u4_kit"
+                     sources="probe/src/p8ykneolike"
+                     package="p8ykneolike"
+                     version="1.0"
+                     aid="A00000061700FF0008"
+                     output="probe-p8ykneolike.cap"
+                     verify="false">
+                  <applet class="p8ykneolike.YkneoLike" aid="A00000061700FF000801"/>
+                </cap>
+              </javacard>
+            </target>
+            <target name="p9rng305">
+              <javacard>
+                <cap jckit="${sdks}/jc305u4_kit"
+                     sources="probe/src/p9rng305"
+                     package="p9rng305"
+                     version="1.0"
+                     aid="A00000061700FF0009"
+                     output="probe-p9rng305.cap"
+                     verify="false">
+                  <applet class="p9rng305.Rng305" aid="A00000061700FF000901"/>
+                </cap>
+              </javacard>
+            </target>
+            <target name="p10rngtrng">
+              <javacard>
+                <cap jckit="${sdks}/jc305u4_kit"
+                     sources="probe/src/p10rngtrng"
+                     package="p10rngtrng"
+                     version="1.0"
+                     aid="A00000061700FF000A"
+                     output="probe-p10rngtrng.cap"
+                     verify="false">
+                  <applet class="p10rngtrng.RngTrng" aid="A00000061700FF000A01"/>
+                </cap>
+              </javacard>
+            </target>
+          </project>
+          JCEOF
+          echo "---- generated sources ----"
+          find probe/src -name "*.java" | sort
+          if grep -rn "ALG_SHA_1" probe/src; then echo "WARN: bad constant still present"; fi
       - name: Build probes
         run: ant -f build-probe.xml all
 
