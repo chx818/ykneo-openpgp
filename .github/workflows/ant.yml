@@ -10,37 +10,34 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # 1. 递归拉取子模块（解决找不到 ant-javacard 的问题）
       - name: Checkout repository with submodules
         uses: actions/checkout@v4
         with:
           submodules: recursive
           fetch-depth: 0
 
-      # 2. 使用最新版 setup-java@v5 并固定 JDK 8
       - name: Set up JDK 8
         uses: actions/setup-java@v5
         with:
           distribution: 'temurin'
           java-version: '8'
 
-      # 3. 安装 Ant 工具
       - name: Install Ant
         run: sudo apt-get update && sudo apt-get install -y ant
 
-      # 4. 下载 JavaCard 3.0.4 SDK
-      - name: Download JavaCard SDK
+      # 下载标准的 JavaCard 2.2.2 SDK（完全契合旧版 ant 脚本与 api.jar 路径）
+      - name: Download JavaCard 2.2.2 SDK
         run: |
           curl -L -o jcsdk.zip https://github.com/martinpaljak/oracle_javacard_sdks/archive/refs/heads/master.zip
           unzip -q jcsdk.zip
-          echo "JC_HOME=$GITHUB_WORKSPACE/oracle_javacard_sdks-master/jc304_kit" >> $GITHUB_ENV
+          # 2.2.2 的目录命名通常为 jc222_kit
+          echo "JC_HOME=$GITHUB_WORKSPACE/oracle_javacard_sdks-master/jc222_kit" >> $GITHUB_ENV
 
-      # 5. 编译并打印详细日志（若失败方便定位）
+      # 同时传递 -Djc.home 与环境变量 JC_HOME，并确保类路径可被识别
       - name: Build with Ant
         run: |
-          ant -verbose -Djc.home="$JC_HOME"
+          ant -Djc.home="$JC_HOME" -DJC_HOME="$JC_HOME"
 
-      # 6. 上传生成的 CAP 产物
       - name: Upload CAP File
         uses: actions/upload-artifact@v4
         with:
