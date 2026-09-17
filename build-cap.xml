@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  ant-javacard 构建脚本  (https://github.com/martinpaljak/ant-javacard)
+  放到仓库根目录，和 applet/ 平级。
+
+  前置：
+      curl -L -o ant-javacard.jar https://github.com/martinpaljak/ant-javacard/releases/latest/download/ant-javacard.jar
+      git clone https://github.com/martinpaljak/oracle_javacard_sdks.git sdks
+
+  用法：
+      ant -f build-cap.xml            # 两个目标都编
+      ant -f build-cap.xml cap-222    # 只编 Java Card 2.2.2 版
+      ant -f build-cap.xml cap-305    # 只编 Java Card 3.0.5 版
+
+  AID 与版本号和上游 build.xml 完全一致，编出来的东西 GnuPG 能直接认。
+-->
+<project name="ykneo-openpgp-cap" default="all" basedir=".">
+
+  <taskdef name="javacard" classname="pro.javacard.ant.JavaCard" classpath="ant-javacard.jar"/>
+
+  <property name="sdks" location="sdks"/>
+  <property name="src" location="applet/src"/>
+
+  <property name="pkg.name"     value="openpgpcard"/>
+  <property name="pkg.version"  value="0.1"/>
+  <!-- 上游 build.xml: PACKAGE_AID = D2 76 00 01 24 01 -->
+  <property name="pkg.aid"      value="D27600012401"/>
+  <!-- 上游 build.xml: APPLET_AID = D2760001240102000000000000010000 (标准 OpenPGP AID) -->
+  <property name="applet.aid"   value="D2760001240102000000000000010000"/>
+  <property name="applet.class" value="openpgpcard.OpenPGPApplet"/>
+
+  <target name="all" depends="cap-222,cap-305"/>
+
+  <!-- =====================================================================
+       目标平台 Java Card 2.2.2
+       适用：JCOP 2.4.1 (JC 2.2.2 / GP 2.1.1) 以及各种自称 J3R200 的老卡
+       ===================================================================== -->
+  <target name="cap-222" description="CAP for JavaCard 2.2.2">
+    <javacard>
+      <cap jckit="${sdks}/jc222_kit"
+           sources="${src}"
+           package="${pkg.name}"
+           version="${pkg.version}"
+           aid="${pkg.aid}"
+           output="openpgpcard-jc222.cap"
+           verify="false">
+        <applet class="${applet.class}" aid="${applet.aid}"/>
+      </cap>
+    </javacard>
+  </target>
+
+  <!-- =====================================================================
+       目标平台 Java Card 3.0.5
+       适用：真正的 NXP J3R200 / JCOP 4 (Java Card 3.0.5)
+       ===================================================================== -->
+  <target name="cap-305" description="CAP for JavaCard 3.0.5">
+    <javacard>
+      <cap jckit="${sdks}/jc305u4_kit"
+           sources="${src}"
+           package="${pkg.name}"
+           version="${pkg.version}"
+           aid="${pkg.aid}"
+           output="openpgpcard-jc305.cap"
+           verify="false">
+        <applet class="${applet.class}" aid="${applet.aid}"/>
+      </cap>
+    </javacard>
+  </target>
+
+  <!-- =====================================================================
+       进阶：用 3.0.5 的 converter 去 target 2.2.2 平台
+       （ant-javacard 官方推荐的"老平台"姿势，JC 3.0.5u4 + JDK 17）
+       如果 cap-222 用 2.2.2 的 converter 编不过，就试这个：
+       ant -f build-cap.xml cap-222-via-305
+       ===================================================================== -->
+  <target name="cap-222-via-305" description="CAP for JavaCard 2.2.2, built by 3.0.5 converter">
+    <javacard>
+      <cap jckit="${sdks}/jc305u4_kit"
+           targetsdk="${sdks}/jc222_kit"
+           sources="${src}"
+           package="${pkg.name}"
+           version="${pkg.version}"
+           aid="${pkg.aid}"
+           output="openpgpcard-jc222-via305.cap"
+           verify="false">
+        <applet class="${applet.class}" aid="${applet.aid}"/>
+      </cap>
+    </javacard>
+  </target>
+
+</project>
